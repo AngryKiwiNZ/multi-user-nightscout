@@ -1,0 +1,2 @@
+slug,domain,db_name,env_file
+jay,jay.example.nz,ns_jay,sites/jay.env

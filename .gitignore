@@ -1,0 +1,8 @@
+.env
+backups/
+data/
+generated/
+upstream/
+config/sites.csv
+sites/*.env
+!sites/*.env.example
