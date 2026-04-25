@@ -1,5 +1,9 @@
 # multi-user-nightscout
 
+This project is a simpler way to run multiple Nightscout sites in Docker without needing a separate MongoDB container for every single user.
+
+The main goal is to reduce complexity and RAM usage while keeping each Nightscout site separate and as close as possible to the original Nightscout design.
+
 Run many upstream Nightscout instances with:
 
 - one shared MongoDB container
@@ -8,12 +12,121 @@ Run many upstream Nightscout instances with:
 - one Nightscout container per site
 - two Docker networks instead of dozens
 
+Instead of this:
+
+- 1 Nightscout container
+- 1 MongoDB container
+- 1 Docker network
+- repeated again and again for every user
+
+this project changes the setup to:
+
+- 1 shared MongoDB engine
+- many Nightscout containers
+- 1 separate Mongo database per Nightscout site
+- a much smaller number of Docker networks to manage
+
+This matters because MongoDB uses memory. If you run lots of separate MongoDB containers, you waste RAM on duplicated database engines. By running one MongoDB engine with many separate databases inside it, you can host more Nightscout sites on less RAM.
+
 This repo is intentionally a Docker orchestration layer around the official Nightscout project. You can either:
 
 - pull the published upstream image from Docker Hub
 - or clone the official Nightscout repo locally and build from that checkout
 
 That gives you a clean way to host many sites without maintaining your own app fork.
+
+## Purpose
+
+The purpose of this repo is to make multi-site Nightscout hosting simpler.
+
+It is designed for people who want to host several Nightscout sites in Docker and want:
+
+- less RAM usage
+- fewer MongoDB containers
+- fewer Docker networks
+- a cleaner update path
+- to stay close to the original Nightscout project
+
+This project does not try to turn Nightscout into a completely new custom app.
+
+Instead, it keeps the original Nightscout model:
+
+- one Nightscout app per site
+- one database per site
+- one set of site-specific settings per site
+
+The difference is that many separate site databases now live inside one shared MongoDB engine.
+
+## How It Works
+
+Each user still gets their own Nightscout site.
+
+Each site still has its own:
+
+- hostname
+- API secret
+- Nightscout settings
+- Mongo database
+
+So from the Nightscout app's point of view, it still behaves much like a normal standalone Nightscout install.
+
+The main change is underneath:
+
+- before, each site had its own MongoDB container
+- now, all sites share one MongoDB engine
+- but each site stores its data in its own separate database
+
+Example:
+
+- `jay.example.nz` uses database `ns_jay`
+- `bob.example.nz` uses database `ns_bob`
+- `alice.example.nz` uses database `ns_alice`
+
+This helps preserve the original functionality and separation of the original Nightscout project while making the hosting environment much more efficient.
+
+## Why This Uses Less RAM
+
+If you run 20 or 50 separate MongoDB containers, each one has its own memory overhead.
+
+That means the server is spending RAM on:
+
+- many MongoDB processes
+- many caches
+- many container overheads
+
+With this project, you run one MongoDB engine and many databases inside it instead.
+
+That means:
+
+- fewer running database processes
+- less duplicated overhead
+- simpler backups
+- simpler monitoring
+- simpler upgrades
+
+The result is that you can usually host more Nightscout sites on the same machine.
+
+## Security And Separation
+
+Even though the MongoDB engine is shared, the intention is still that each user's data remains separate.
+
+That separation is achieved by giving each site its own dedicated database.
+
+So:
+
+- Jay's Nightscout reads and writes `ns_jay`
+- Bob's Nightscout reads and writes `ns_bob`
+- Alice's Nightscout reads and writes `ns_alice`
+
+That preserves the original Nightscout structure much better than trying to put all users into one shared set of collections.
+
+In other words:
+
+- shared MongoDB engine
+- separate database per site
+- original Nightscout behavior preserved as much as possible
+
+This repo currently generates connection settings automatically. A further hardening step for production is to use a separate MongoDB user per site so each Nightscout container can access only its own database.
 
 ## Architecture
 
@@ -57,6 +170,28 @@ Think of this repo as the control panel around Nightscout.
 - This repo just manages shared Mongo, Nginx, and one Nightscout container per site.
 - A brand new site starts directly on the shared Mongo server.
 - An old site can be copied into the shared Mongo server and switched over later.
+
+## Standalone vs Shared Model
+
+Traditional Nightscout hosting usually looks like this:
+
+- `nightscout-jay` -> `mongo-jay`
+- `nightscout-bob` -> `mongo-bob`
+- `nightscout-alice` -> `mongo-alice`
+
+This project changes that to:
+
+- `nightscout-jay` -> shared Mongo database `ns_jay`
+- `nightscout-bob` -> shared Mongo database `ns_bob`
+- `nightscout-alice` -> shared Mongo database `ns_alice`
+
+So you are not combining users into one Nightscout app.
+
+You are running:
+
+- one Nightscout container per site
+- one database per site
+- one shared MongoDB engine underneath them all
 
 ## Choose how to run Nightscout
 
@@ -136,6 +271,10 @@ docker compose -f compose.yaml -f generated/compose.sites.yaml up -d
 
 When the site starts, Nightscout will create and use its own database inside the shared Mongo server.
 
+This is the easiest path for new users because there is no migration step.
+
+You are simply creating a normal Nightscout site that starts life on the shared MongoDB engine from day one.
+
 ## Existing site migration
 
 For an existing standalone Nightscout site that already has its own Mongo:
@@ -159,6 +298,8 @@ docker compose -f compose.yaml -f generated/compose.sites.yaml up -d
 ```
 
 After testing, you can stop the old Mongo container. You do not need to delete it immediately.
+
+This is the safer path for existing users because it gives you a rollback option if anything is wrong.
 
 ## Site inventory format
 
@@ -248,3 +389,4 @@ Safer rollout:
 - Mongo is only attached to `mongo-net` and is not published directly to the internet.
 - Nightscout containers are attached to both `proxy-net` and `mongo-net`.
 - This repo does not patch Nightscout itself. It gives you a maintainable multi-site hosting layout while preserving upstream compatibility.
+- The main benefit is operational simplicity: more Nightscout sites, fewer MongoDB containers, and lower overall RAM overhead.
